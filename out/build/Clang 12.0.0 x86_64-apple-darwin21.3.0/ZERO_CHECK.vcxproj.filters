@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\ASU Academics\Transportation Modelling and Simulation\TAPLite\out\build\Clang 12.0.0 x86_64-apple-darwin21.3.0\CMakeFiles\f73463a45c31bb901a501f262b4d4035\generate.stamp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{FA19E096-E0F7-3A11-8542-C05E94981A65}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

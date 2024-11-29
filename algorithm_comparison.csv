@@ -1,0 +1,7 @@
+,mean_differences,execution_times
+fifo_vs_original,-0.6298351131018513,
+deque_vs_original,-0.6298351131018513,
+mdl_vs_original,-0.6298351131018513,
+FIFO-Optimized,,0.034181833267211914
+Deque-Optimized,,0.012952089309692383
+MDL-Heap,,0.011590719223022461

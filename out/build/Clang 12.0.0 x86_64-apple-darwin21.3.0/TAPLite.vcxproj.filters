@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="D:\ASU Academics\Transportation Modelling and Simulation\TAPLite\TAPLite\TAPLite.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="D:\ASU Academics\Transportation Modelling and Simulation\TAPLite\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{B1A445FE-D02D-302E-A16B-C74CEC8D085E}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>
