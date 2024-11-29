@@ -2075,16 +2075,12 @@ def traffic_assignment(assign_iterations,use_us_standard):
     # Output
     print(f"System Least Travel Time: {system_least_travel_time:.2f}")
 
-    #added
-    generate_assessibility_matrix(use_us_standard = False)
-    accessibility_matrix_summary()
-
+    
     # Add the enhanced comparisons
     processor = AlternativeShortestPaths()
     processor.load_network_data()
     processor.update_accessibility_matrix()
     
-  
     
 def route_assignment_summary():
     """
@@ -2703,35 +2699,9 @@ class AlternativeShortestPaths:
         
         return summary_stats
 
-def main():
-    """
-    Main function to orchestrate the enhanced accessibility calculations.
-    """
-    print("Starting enhanced accessibility analysis...")
-    
-    # Initialize the processor
-    processor = AlternativeShortestPaths()
-    
-    # Load network data
-    processor.load_network_data()
-    
-    # Update accessibility matrix with multiple algorithms
-    summary_stats = processor.update_accessibility_matrix()
-    
-    print("\nComparison Summary:")
-    print(summary_stats)
-    
-    print("\nOutput files generated:")
-    print("- accessibility_matrix_enhanced.csv: Enhanced accessibility matrix")
-    print("- accessibility_algorithm_comparison.csv: Detailed algorithm comparison")
 
-if __name__ == "__main__":
-    main()
+# main program below
 
-traffic_assignment(2,use_us_standard = False)
-# main program below   
-   
-'''
 osm2gmns_network()
 sort_and_rewrite_GMNS_links()
 generate_transportation_network_summary()
@@ -2748,5 +2718,20 @@ route_assignment_summary()
 route_to_agent_file()
 simu_main()
 
+print("Starting accessibility analysis...")
 
-'''
+# Initialize the processor
+processor = AlternativeShortestPaths()
+    
+# Load network data
+processor.load_network_data()
+    
+# Update accessibility matrix with multiple algorithms
+summary_stats = processor.update_accessibility_matrix()
+    
+print("\nComparison Summary:")
+print(summary_stats)
+    
+print("\nOutput files generated:")
+print("- accessibility_matrix_enhanced.csv: Enhanced accessibility matrix")
+print("- accessibility_algorithm_comparison.csv: Detailed algorithm comparison")
