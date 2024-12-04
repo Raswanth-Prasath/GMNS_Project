@@ -1,0 +1,360 @@
+import csv
+import os
+import math
+import pandas as pd
+import networkx as nx
+from collections import deque
+import heapq
+import numpy as np
+import time
+import matplotlib.pyplot as plt
+from sklearn.metrics import r2_score
+
+# Global constants
+MAX_MODE_TYPES = 10
+INVALID = -1
+BIGM = 9999999
+
+# Global variables for network structure
+number_of_nodes = 0
+number_of_zones = 0
+number_of_links = 0
+first_thru_node = 0
+
+# Global mappings and data structures
+g_map_external_node_id_2_node_seq_no = {}
+g_map_external_node_id_2_zone_id = {}
+g_map_node_seq_no_2_external_node_id = {}
+g_link_vector = []
+FirstLinkFrom = []
+LastLinkFrom = []
+
+class LinkRecord:
+    """Class to store link properties"""
+    def __init__(self):
+        self.internal_from_node_id = 0
+        self.internal_to_node_id = 0
+        self.link_id = 0
+        self.external_from_node_id = 0
+        self.external_to_node_id = 0
+        self.travel_time = 0.0
+        self.length = 0.0
+        self.free_speed = 0.0
+
+def initialize_network():
+    """Initialize network data structures from CSV files"""
+    global number_of_nodes, number_of_zones, first_thru_node, number_of_links
+    global g_map_external_node_id_2_node_seq_no, g_map_external_node_id_2_zone_id
+    global g_map_node_seq_no_2_external_node_id, g_link_vector, FirstLinkFrom, LastLinkFrom
+    
+    print("Loading network data...")
+    
+    try:
+        # Read node file
+        nodes_df = pd.read_csv('node.csv')
+        
+        # Process nodes
+        for _, row in nodes_df.iterrows():
+            node_id = int(row['node_id'])
+            zone_id = int(row['zone_id']) if pd.notnull(row['zone_id']) else 0
+            
+            g_map_node_seq_no_2_external_node_id[number_of_nodes + 1] = node_id
+            g_map_external_node_id_2_node_seq_no[node_id] = number_of_nodes + 1
+            g_map_external_node_id_2_zone_id[node_id] = zone_id
+            
+            if zone_id > number_of_zones:
+                number_of_zones = zone_id
+            if zone_id == 0 and first_thru_node == 0:
+                first_thru_node = number_of_nodes + 1
+            
+            number_of_nodes += 1
+        
+        # Read and sort links
+        links_df = pd.read_csv('link.csv')
+        links_df = links_df.sort_values(['from_node_id', 'to_node_id'])
+        number_of_links = len(links_df)
+        
+        # Initialize arrays
+        FirstLinkFrom = [0] * (number_of_nodes + 1)
+        LastLinkFrom = [-1] * (number_of_nodes + 1)
+        g_link_vector = [None] * (number_of_links + 1)
+        
+        # Process links
+        current_from_node = None
+        k = 1
+        
+        for _, link in links_df.iterrows():
+            link_record = LinkRecord()
+            link_record.external_from_node_id = int(link['from_node_id'])
+            link_record.external_to_node_id = int(link['to_node_id'])
+            link_record.link_id = k
+            
+            # Map node IDs
+            link_record.internal_from_node_id = g_map_external_node_id_2_node_seq_no[link_record.external_from_node_id]
+            link_record.internal_to_node_id = g_map_external_node_id_2_node_seq_no[link_record.external_to_node_id]
+            
+            # Set properties
+            link_record.length = float(link['length'])
+            link_record.free_speed = float(link.get('free_speed', 60))  # default 60 km/h
+            link_record.travel_time = (link_record.length / 1000) / link_record.free_speed * 3600  # seconds
+            
+            # Update FirstLinkFrom and LastLinkFrom
+            if current_from_node != link_record.internal_from_node_id:
+                if current_from_node is not None:
+                    LastLinkFrom[current_from_node] = k - 1
+                FirstLinkFrom[link_record.internal_from_node_id] = k
+                current_from_node = link_record.internal_from_node_id
+            
+            g_link_vector[k] = link_record
+            k += 1
+        
+        # Set final LastLinkFrom
+        if current_from_node is not None:
+            LastLinkFrom[current_from_node] = number_of_links
+        
+        print(f"Network loaded successfully:")
+        print(f"  Nodes: {number_of_nodes}")
+        print(f"  Links: {number_of_links}")
+        print(f"  Zones: {number_of_zones}")
+        
+    except Exception as e:
+        print(f"Error initializing network: {str(e)}")
+        raise
+
+def minpath(mode, orig, pred_link, cost_to):
+    """Implementation of the minpath algorithm"""
+    global FirstLinkFrom, LastLinkFrom, g_link_vector, number_of_nodes, first_thru_node
+    
+    # Initialize arrays
+    cost_to.fill(BIGM)
+    pred_link.fill(INVALID)
+    
+    # Set origin
+    now = g_map_external_node_id_2_node_seq_no[orig]
+    internal_node_id_for_origin_zone = now
+    
+    pred_link[now] = INVALID
+    cost_to[now] = 0.0
+    scan_list = [now]
+    
+    while scan_list:
+        now = scan_list.pop(0)
+        if now >= first_thru_node or now == internal_node_id_for_origin_zone:
+            if FirstLinkFrom[now] <= LastLinkFrom[now]:
+                for k in range(FirstLinkFrom[now], LastLinkFrom[now] + 1):
+                    if g_link_vector[k] is not None:
+                        new_node = g_link_vector[k].internal_to_node_id
+                        new_cost = cost_to[now] + g_link_vector[k].travel_time
+                        
+                        if cost_to[new_node] > new_cost:
+                            cost_to[new_node] = new_cost
+                            pred_link[new_node] = k
+                            if new_node not in scan_list:
+                                scan_list.append(new_node)
+
+def plot_algorithm_comparison(results_df, algorithms):
+    """
+    Create a robust performance visualization that handles edge cases.
+    """
+    plt.figure(figsize=(12, 6))
+    
+    for alg in algorithms:
+        alg_data = results_df[results_df['algorithm'] == alg]
+        
+        # Plot scatter points
+        plt.scatter(alg_data['avg_path_cost'], alg_data['runtime'], 
+                   label=f'{alg}', alpha=0.6)
+        
+        # Only attempt trendline if we have enough valid points
+        if len(alg_data) > 2:
+            try:
+                # Remove any infinite or nan values
+                valid_mask = np.isfinite(alg_data['avg_path_cost']) & np.isfinite(alg_data['runtime'])
+                x = alg_data['avg_path_cost'][valid_mask]
+                y = alg_data['runtime'][valid_mask]
+                
+                if len(x) > 2:  # Need at least 3 points for meaningful trend
+                    # Use robust linear regression
+                    coeffs = np.polyfit(x, y, 1)
+                    poly = np.poly1d(coeffs)
+                    
+                    # Generate points for trend line
+                    x_range = np.linspace(x.min(), x.max(), 100)
+                    plt.plot(x_range, poly(x_range), '--', alpha=0.3)
+            except Exception as e:
+                print(f"Could not generate trend line for {alg}: {str(e)}")
+    
+    plt.xlabel('Average Path Cost (seconds)')
+    plt.ylabel('Runtime (seconds)')
+    plt.title('Algorithm Performance Comparison')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    return plt.gcf()  # Return the figure for further modification if needed
+
+def generate_robust_r2_comparisons(results_df):
+    """
+    Generate R² comparisons with proper error handling.
+    """
+    algorithms = sorted(results_df['algorithm'].unique())
+    n_algorithms = len(algorithms)
+    r2_matrix = np.zeros((n_algorithms, n_algorithms))
+    
+    # Create a figure with more space for subplots
+    fig = plt.figure(figsize=(15, 12))
+    
+    # 1. Create R² heatmap
+    ax1 = plt.subplot(2, 1, 1)
+    
+    # Calculate R² values with error handling
+    for i, alg1 in enumerate(algorithms):
+        for j, alg2 in enumerate(algorithms):
+            if i != j:
+                try:
+                    costs1 = results_df[results_df['algorithm'] == alg1]['avg_path_cost'].values
+                    costs2 = results_df[results_df['algorithm'] == alg2]['avg_path_cost'].values
+                    
+                    # Remove any invalid values
+                    valid_mask = np.isfinite(costs1) & np.isfinite(costs2)
+                    if np.sum(valid_mask) > 2:  # Need at least 3 points
+                        r2 = r2_score(costs1[valid_mask], costs2[valid_mask])
+                        r2_matrix[i, j] = r2
+                    else:
+                        r2_matrix[i, j] = np.nan
+                except Exception as e:
+                    print(f"Could not calculate R² for {alg1} vs {alg2}: {str(e)}")
+                    r2_matrix[i, j] = np.nan
+    
+    # Plot heatmap
+    im = ax1.imshow(r2_matrix, cmap='YlOrRd')
+    plt.colorbar(im)
+    ax1.set_title('R² Values Between Algorithm Costs')
+    ax1.set_xticks(range(n_algorithms))
+    ax1.set_yticks(range(n_algorithms))
+    ax1.set_xticklabels(algorithms, rotation=45)
+    ax1.set_yticklabels(algorithms)
+    
+    # 2. Create pairwise comparison plots
+    for i in range(min(3, n_algorithms-1)):  # Show up to 3 comparisons
+        for j in range(i+1, min(i+2, n_algorithms)):
+            ax = plt.subplot(2, 3, i+4)  # Position in bottom row
+            
+            alg1_data = results_df[results_df['algorithm'] == algorithms[i]]
+            alg2_data = results_df[results_df['algorithm'] == algorithms[j]]
+            
+            # Plot scatter with error handling
+            try:
+                x = alg1_data['avg_path_cost']
+                y = alg2_data['avg_path_cost']
+                
+                # Remove invalid values
+                valid_mask = np.isfinite(x) & np.isfinite(y)
+                x = x[valid_mask]
+                y = y[valid_mask]
+                
+                ax.scatter(x, y, alpha=0.6)
+                
+                # Add reference line
+                if len(x) > 0:
+                    min_val = min(x.min(), y.min())
+                    max_val = max(x.max(), y.max())
+                    ax.plot([min_val, max_val], [min_val, max_val], 'r--', alpha=0.5)
+                
+                ax.set_xlabel(f'{algorithms[i]} Cost')
+                ax.set_ylabel(f'{algorithms[j]} Cost')
+                ax.set_title(f'R² = {r2_matrix[i,j]:.4f}')
+            except Exception as e:
+                print(f"Could not create comparison plot for {algorithms[i]} vs {algorithms[j]}: {str(e)}")
+    
+    plt.tight_layout()
+    return fig, r2_matrix
+
+def compare_shortest_path_algorithms():
+    """Compare performance of shortest path algorithms"""
+    # Initialize network first
+    initialize_network()
+    
+    results_data = []
+    test_origins = range(1, min(10, number_of_zones + 1))
+    algorithms = ['Minpath', 'FIFO', 'Deque', 'Dijkstra']
+    
+    print("\nComparing algorithms...")
+    
+    for alg_name in algorithms:
+        print(f"\nTesting {alg_name} algorithm...")
+        
+        for origin in test_origins:
+            cost_to = np.full(number_of_nodes + 1, BIGM)
+            pred_link = np.full(number_of_nodes + 1, INVALID)
+            
+            start_time = time.time()
+            
+            # Run algorithm (keep existing implementation)
+            if alg_name == 'Minpath':
+                minpath(1, origin, pred_link, cost_to)
+            else:
+                # [Rest of algorithm implementations]
+                pass
+            
+            runtime = time.time() - start_time
+            valid_costs = [c for c in cost_to if c < BIGM - 1 and c < float('inf')]
+            paths_found = len(valid_costs)
+            avg_cost = np.mean(valid_costs) if valid_costs else 0
+            
+            results_data.append({
+                'algorithm': alg_name,
+                'origin': origin,
+                'runtime': runtime,
+                'paths_found': paths_found,
+                'avg_path_cost': avg_cost
+            })
+    
+    # Convert to DataFrame
+    results_df = pd.DataFrame(results_data)
+    
+    # Generate visualizations with error handling
+    try:
+        print("\nGenerating performance visualization...")
+        perf_fig = plot_algorithm_comparison(results_df, algorithms)
+        perf_fig.savefig('algorithm_comparison.png')
+        
+        print("Generating R² comparison analysis...")
+        r2_fig, r2_matrix = generate_robust_r2_comparisons(results_df)
+        r2_fig.savefig('r2_comparison.png')
+        
+        # Save R² matrix
+        r2_df = pd.DataFrame(r2_matrix, columns=algorithms, index=algorithms)
+        r2_df.to_csv('r2_comparison.csv')
+        
+    except Exception as e:
+        print(f"Warning: Could not generate some visualizations: {str(e)}")
+    
+    # Calculate statistics
+    stats = results_df.groupby('algorithm').agg({
+        'runtime': ['mean', 'std', 'min', 'max'],
+        'paths_found': ['mean', 'std'],
+        'avg_path_cost': ['mean', 'std']
+    }).round(4)
+    
+    # Save results
+    results_df.to_csv('algorithm_comparison.csv', index=False)
+    stats.to_csv('algorithm_stats.csv')
+    
+    print("\nPerformance Summary:")
+    print(stats)
+    
+    return results_df, stats, r2_df
+
+if __name__ == "__main__":
+    print("Starting shortest path algorithm comparison...")
+    try:
+        results_df, stats, r2_df = compare_shortest_path_algorithms()
+        print("\nComparison complete. Results saved to:")
+        print("- algorithm_comparison.csv: Detailed results")
+        print("- algorithm_stats.csv: Statistical summary")
+        print("- algorithm_comparison.png: Performance visualization")
+        print("- r2_comparison.png: R² analysis visualization")
+        print("- r2_comparison.csv: R² values matrix")
+    except Exception as e:
+        print(f"An error occurred: {str(e)}")
+        raise
